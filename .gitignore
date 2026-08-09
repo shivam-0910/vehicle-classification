@@ -1,0 +1,88 @@
+# =========================
+# Dataset (never commit raw/processed data)
+# =========================
+data/raw/
+data/processed/
+*.zip
+*.tar
+*.tar.gz
+
+# =========================
+# Trained models / large binaries
+# =========================
+models/*.h5
+models/*.keras
+models/*.pb
+models/checkpoints/
+*.weights.h5
+
+# =========================
+# Results (keep plots optionally, ignore verbose logs)
+# =========================
+results/logs/
+results/metrics/*.tmp
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# =========================
+# Virtual environments
+# =========================
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# Environment variables / secrets
+# =========================
+.env
+.env.*
+*.pem
+*.key
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# IDE / editor
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Streamlit
+# =========================
+.streamlit/secrets.toml
+
+# =========================
+# Large deliverables (link externally instead of committing)
+# =========================
+docs/demo_video.mp4
+*.mp4
+*.mov
+
+# =========================
+# Misc
+# =========================
+*.log
+.pytest_cache/
+.mypy_cache/
