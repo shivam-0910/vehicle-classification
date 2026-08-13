@@ -2,10 +2,10 @@
 
 AI Internship — Project 1: Image Classification System
 
-A Convolutional Neural Network (CNN) that classifies images into four vehicle
-categories: **Car, Bus, Truck, Motorcycle**. Built with TensorFlow/Keras,
-evaluated with standard classification metrics, and deployed as an
-interactive Streamlit app.
+A Convolutional Neural Network (CNN) that classifies images into ten vehicle
+categories: **Bicycle, Boat, Bus, Car, Helicopter, Minibus, Motorcycle, Taxi,
+Train, Truck**. Built with TensorFlow/Keras, evaluated with standard
+classification metrics, and deployed as an interactive Streamlit app.
 
 > **Status:** Architecture phase complete. Implementation in progress.
 > See [Roadmap](#roadmap) for current phase.
@@ -16,7 +16,7 @@ interactive Streamlit app.
 
 | | |
 |---|---|
-| **Task** | Multi-class image classification (4 classes) |
+| **Task** | Multi-class image classification (10 classes) |
 | **Model** | CNN built from scratch (Conv → Pool → Dropout → Dense → Softmax) |
 | **Framework** | TensorFlow / Keras |
 | **Deployment** | Streamlit |

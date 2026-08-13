@@ -1,0 +1,121 @@
+# =========================================================
+# Vehicle-10 Classification — Preprocessing Configuration
+# =========================================================
+# This is the single place where the dataset path and
+# preprocessing parameters live. Business logic (loader.py,
+# preprocess.py) must read these values rather than hardcode
+# them, so the project stays portable across machines.
+
+dataset:
+  # Local path to the raw Vehicle-10 dataset root on THIS machine.
+  # Contains: bicycle/, boat/, bus/, car/, helicopter/, minibus/,
+  # motorcycle/, taxi/, train/, truck/, train_meta.json, valid_meta.json
+  raw_root: "D:\\ml-datasets\\vehicle-10"
+
+  # Where processed (resized/converted/split) images and the
+  # manifest are written. Never write into raw_root.
+  processed_root: "data/processed"
+
+  classes:
+    - bicycle
+    - boat
+    - bus
+    - car
+    - helicopter
+    - minibus
+    - motorcycle
+    - taxi
+    - train
+    - truck
+
+preprocessing:
+  # Target size (width, height) images are resized to.
+  image_size: [128, 128]
+
+  # Images with width OR height below this threshold (in the
+  # original, pre-resize file) are excluded entirely rather
+  # than upscaled.
+  min_image_size: 64
+
+  # Fraction of the *official training* entries carved out to
+  # form the new test set. The official validation set
+  # (valid_meta.json) is preserved untouched.
+  test_split_fraction: 0.15
+
+  # Fixed seed so repeated preprocessing runs produce an
+  # identical train/test carve every time (no reshuffling).
+  seed: 42
+
+  # Output image format for processed files.
+  output_format: "jpg"
+  jpeg_quality: 95
+
+manifest:
+  # Manifest is written to processed_root/manifest.csv
+  filename: "manifest.csv"
+
+# =========================================================
+# Phase 4 — Data Augmentation
+# =========================================================
+# Applied ON-THE-FLY to the "train" split ONLY (see
+# src/data/augmentation.py). validation/ and test/ are never
+# augmented, and no augmented copies are written to disk.
+augmentation:
+  enabled: true
+
+  rotation:
+    enabled: true
+    # random rotation sampled from [-range_degrees, +range_degrees]
+    range_degrees: 10.0
+
+  zoom:
+    enabled: true
+    # random zoom sampled from [1 - range_fraction, 1 + range_fraction]
+    range_fraction: 0.10
+
+  horizontal_flip:
+    enabled: true
+    probability: 0.5
+
+  vertical_flip:
+    # OFF by default: vehicles are normally upright, so a
+    # vertically-flipped image is not a realistic training example.
+    # Left fully configurable per the project spec.
+    enabled: false
+    probability: 0.5
+
+  brightness:
+    enabled: true
+    # random brightness factor sampled from
+    # [1 - range_fraction, 1 + range_fraction]
+    range_fraction: 0.20
+
+# =========================================================
+# Phase 6 — Training
+# =========================================================
+# Consumed by src/training/train.py only. Model architecture
+# lives in src/models/cnn_model.py and is not duplicated here;
+# image_size/classes above are reused as-is for the input
+# pipeline and class ordering.
+training:
+  epochs: 30
+  batch_size: 32
+  learning_rate: 0.001
+
+  early_stopping:
+    enabled: true
+    patience: 5
+
+  reduce_lr:
+    enabled: true
+    patience: 2
+    factor: 0.5
+
+  checkpoint:
+    enabled: true
+    path: "models/best_model.keras"
+
+  # Where run artifacts (history JSON, accuracy/loss plots) are written.
+  results:
+    metrics_dir: "results/metrics"
+    plots_dir: "results/plots"

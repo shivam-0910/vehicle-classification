@@ -1,154 +1,389 @@
 """
-Tests for src/data/validator.py — dataset discovery and metadata loading.
+Tests for src/data/preprocess.py and src/data/loader.py.
 
-These tests build small synthetic datasets in a pytest tmp_path fixture,
-so they do NOT depend on the real Vehicle-10 dataset being present on
-disk. This keeps the test suite fast and runnable in CI or on a machine
-that hasn't downloaded the dataset yet.
+All tests use synthetic images built in pytest tmp_path fixtures — none
+depend on the real 36,006-image Vehicle-10 dataset. This keeps the
+suite fast and runnable without the dataset present on disk.
 """
+import csv
 import json
 import os
+
 import pytest
 from PIL import Image
 
-from src.data.validator import (
-    discover_class_folders,
-    check_extensions,
-    load_metadata,
-    check_metadata_paths_exist,
-    check_label_folder_consistency,
-    check_train_valid_overlap,
-    class_distribution,
-    LABEL_TO_CLASS,
+from src.data.loader import build_dataset_index, index_by_split
+from src.data.preprocess import (
+    remove_exact_duplicates,
+    filter_tiny_images,
+    carve_test_split,
+    build_split_assignments,
+    convert_to_rgb,
+    run_preprocessing,
 )
 
 
-def _make_image(path, size=(64, 64), mode="RGB"):
+def _make_image(path, size=(100, 100), mode="RGB", color=(255, 0, 0), unique_marker=None):
+    """
+    Save a synthetic source image on disk. RGBA and P images can't be
+    saved as JPEG directly (PIL limitation), so those are saved as PNG
+    instead, matching the .png handling that also occurs in the real
+    Vehicle-10 dataset (which has a small number of RGBA/P PNGs).
+
+    unique_marker draws one pixel a different color so otherwise
+    solid-color synthetic images don't accidentally hash-collide with
+    each other (only genuine, intentional duplicates should collide).
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    Image.new(mode, size).save(path)
+    if mode == "RGBA":
+        img = Image.new("RGBA", size, color)
+    elif mode == "P":
+        img = Image.new("RGB", size, color[:3] if len(color) == 4 else color).convert("P")
+    else:
+        img = Image.new(mode, size, color)
+
+    if unique_marker is not None:
+        # JPEG is lossy, so a single-pixel marker can get compressed away
+        # and cause unrelated same-color images to hash identically.
+        # Draw a solid block in the corner instead so it survives
+        # JPEG compression and produces genuinely distinct file bytes.
+        block = 20
+        for x in range(min(block, size[0])):
+            for y in range(min(block, size[1])):
+                if mode == "P":
+                    idx = img.getpixel((x, y))
+                    img.putpixel((x, y), (idx + unique_marker[0] + 1) % 256)
+                else:
+                    img.putpixel((x, y), unique_marker)
+
+    if mode in ("RGBA", "P"):
+        png_path = os.path.splitext(path)[0] + ".png"
+        img.save(png_path)
+        return png_path
+
+    img.save(path)
+    return path
 
 
 @pytest.fixture
-def mini_dataset(tmp_path):
+def synthetic_dataset(tmp_path):
     """
-    Builds a tiny 2-class dataset (car, truck) with 3 images each,
-    plus train/valid metadata files, mirroring Vehicle-10's structure.
+    Builds a synthetic Vehicle-10-like dataset with:
+      - 2 classes: car (label 3), truck (label 9)
+      - a mix of RGB, RGBA, P images
+      - one tiny image (<64px)
+      - one exact duplicate pair
+      - official train_meta.json / valid_meta.json
     """
     root = tmp_path / "dataset"
-    car_dir = root / "car"
-    truck_dir = root / "truck"
 
-    for i in range(3):
-        _make_image(str(car_dir / f"car_{i}.jpg"))
-    for i in range(3):
-        _make_image(str(truck_dir / f"truck_{i}.jpg"))
+    # --- car class: 6 normal RGB train images, 2 valid images ---
+    car_train_paths = []
+    for i in range(6):
+        p = root / "car" / f"car_{i}.jpg"
+        _make_image(str(p), size=(100, 100), mode="RGB", color=(255, 0, 0), unique_marker=(i * 40 % 256, 0, 0))
+        car_train_paths.append(f"car/car_{i}.jpg")
+
+    car_valid_paths = []
+    for i in range(6, 8):
+        p = root / "car" / f"car_{i}.jpg"
+        _make_image(str(p), size=(100, 100), mode="RGB", color=(255, 0, 0), unique_marker=(i * 40 % 256, 0, 0))
+        car_valid_paths.append(f"car/car_{i}.jpg")
+
+    # RGBA car image (train)
+    p = root / "car" / "car_rgba.jpg"
+    _make_image(str(p), size=(100, 100), mode="RGBA", color=(0, 255, 0, 128))
+    car_train_paths.append("car/car_rgba.png")
+
+    # P-mode car image (train)
+    p = root / "car" / "car_p.jpg"
+    _make_image(str(p), size=(100, 100), mode="P", color=(10, 20, 30))
+    car_train_paths.append("car/car_p.png")
+
+    # tiny car image (train) - should be excluded
+    p = root / "car" / "car_tiny.jpg"
+    _make_image(str(p), size=(32, 32), mode="RGB", color=(255, 0, 0), unique_marker=(99, 0, 0))
+    car_train_paths.append("car/car_tiny.jpg")
+
+    # --- truck class: 6 normal RGB train images, 2 valid images ---
+    truck_train_paths = []
+    for i in range(6):
+        p = root / "truck" / f"truck_{i}.jpg"
+        _make_image(str(p), size=(100, 100), mode="RGB", color=(0, 0, 255), unique_marker=(0, 0, i * 40 % 256))
+        truck_train_paths.append(f"truck/truck_{i}.jpg")
+
+    truck_valid_paths = []
+    for i in range(6, 8):
+        p = root / "truck" / f"truck_{i}.jpg"
+        _make_image(str(p), size=(100, 100), mode="RGB", color=(0, 0, 255), unique_marker=(0, 0, i * 40 % 256))
+        truck_valid_paths.append(f"truck/truck_{i}.jpg")
+
+    # exact duplicate: truck_0_dup.jpg is a byte-identical copy of truck_0.jpg
+    src_bytes = (root / "truck" / "truck_0.jpg").read_bytes()
+    dup_path = root / "truck" / "truck_0_dup.jpg"
+    dup_path.write_bytes(src_bytes)
+    truck_train_paths.append("truck/truck_0_dup.jpg")
 
     train_meta = {
-        "path": ["car/car_0.jpg", "car/car_1.jpg", "truck/truck_0.jpg", "truck/truck_1.jpg"],
-        "label": [3, 3, 9, 9],  # matches Vehicle-10's official label indices
+        "path": car_train_paths + truck_train_paths,
+        "label": [3] * len(car_train_paths) + [9] * len(truck_train_paths),
     }
     valid_meta = {
-        "path": ["car/car_2.jpg", "truck/truck_2.jpg"],
-        "label": [3, 9],
+        "path": car_valid_paths + truck_valid_paths,
+        "label": [3] * len(car_valid_paths) + [9] * len(truck_valid_paths),
     }
 
-    train_meta_path = root / "train_meta.json"
-    valid_meta_path = root / "valid_meta.json"
-    train_meta_path.write_text(json.dumps(train_meta))
-    valid_meta_path.write_text(json.dumps(valid_meta))
+    (root / "train_meta.json").write_text(json.dumps(train_meta))
+    (root / "valid_meta.json").write_text(json.dumps(valid_meta))
 
     return {
         "root": str(root),
-        "train_meta_path": str(train_meta_path),
-        "valid_meta_path": str(valid_meta_path),
+        "car_train_count_before_filtering": len(car_train_paths),
+        "truck_train_count_before_filtering": len(truck_train_paths),
     }
 
 
-def test_discover_class_folders_finds_all_classes(mini_dataset):
-    class_files = discover_class_folders(mini_dataset["root"])
-    assert set(class_files.keys()) == {"car", "truck"}
-    assert len(class_files["car"]) == 3
-    assert len(class_files["truck"]) == 3
+@pytest.fixture
+def base_config(tmp_path):
+    return {
+        "dataset": {
+            "raw_root": "unused-overridden-in-tests",
+            "processed_root": str(tmp_path / "processed"),
+            "classes": [
+                "bicycle", "boat", "bus", "car", "helicopter",
+                "minibus", "motorcycle", "taxi", "train", "truck",
+            ],
+        },
+        "preprocessing": {
+            "image_size": [32, 32],
+            "min_image_size": 64,
+            "test_split_fraction": 0.25,
+            "seed": 42,
+            "output_format": "jpg",
+            "jpeg_quality": 90,
+        },
+        "manifest": {"filename": "manifest.csv"},
+    }
 
 
-def test_discover_class_folders_ignores_non_directory_files(mini_dataset, tmp_path):
-    # a stray file at the dataset root (e.g. a README) should not be treated as a class
-    stray_file = os.path.join(mini_dataset["root"], "notes.txt")
-    with open(stray_file, "w") as f:
-        f.write("not a class folder")
+# --------------------------------------------------------------------
+# RGB / RGBA / P conversion
+# --------------------------------------------------------------------
 
-    class_files = discover_class_folders(mini_dataset["root"])
-    assert "notes.txt" not in class_files
-    assert set(class_files.keys()) == {"car", "truck"}
-
-
-def test_check_extensions_counts_correctly(mini_dataset):
-    class_files = discover_class_folders(mini_dataset["root"])
-    ext_counts = check_extensions(class_files)
-    assert ext_counts[".jpg"] == 6
+def test_convert_rgb_passthrough():
+    img = Image.new("RGB", (10, 10), (1, 2, 3))
+    out = convert_to_rgb(img)
+    assert out.mode == "RGB"
 
 
-def test_load_metadata_returns_matching_pairs(mini_dataset):
-    entries = load_metadata(mini_dataset["train_meta_path"])
-    assert len(entries) == 4
-    assert ("car/car_0.jpg", 3) in entries
-    assert ("truck/truck_0.jpg", 9) in entries
+def test_convert_rgba_to_rgb():
+    img = Image.new("RGBA", (10, 10), (0, 255, 0, 128))
+    out = convert_to_rgb(img)
+    assert out.mode == "RGB"
+    assert out.size == (10, 10)
 
 
-def test_load_metadata_raises_on_missing_keys(tmp_path):
-    bad_meta = tmp_path / "bad_meta.json"
-    bad_meta.write_text(json.dumps({"path": ["a.jpg"]}))  # missing 'label'
-    with pytest.raises(ValueError):
-        load_metadata(str(bad_meta))
+def test_convert_p_to_rgb():
+    img = Image.new("RGB", (10, 10), (10, 20, 30)).convert("P")
+    out = convert_to_rgb(img)
+    assert out.mode == "RGB"
 
 
-def test_load_metadata_raises_on_length_mismatch(tmp_path):
-    bad_meta = tmp_path / "bad_meta.json"
-    bad_meta.write_text(json.dumps({"path": ["a.jpg", "b.jpg"], "label": [0]}))
-    with pytest.raises(ValueError):
-        load_metadata(str(bad_meta))
+# --------------------------------------------------------------------
+# Duplicate exclusion
+# --------------------------------------------------------------------
+
+def test_remove_exact_duplicates(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    before = len(index)
+    deduped = remove_exact_duplicates(index)
+    # exactly one duplicate pair -> exactly one entry removed
+    assert len(deduped) == before - 1
+
+    rel_paths = {e.rel_path for e in deduped}
+    # only one of truck_0.jpg / truck_0_dup.jpg should remain
+    assert not ("truck/truck_0.jpg" in rel_paths and "truck/truck_0_dup.jpg" in rel_paths)
 
 
-def test_check_metadata_paths_exist_detects_missing_file(mini_dataset):
-    entries = load_metadata(mini_dataset["train_meta_path"])
-    entries.append(("car/does_not_exist.jpg", 3))
-    missing = check_metadata_paths_exist(mini_dataset["root"], entries)
-    assert ("car/does_not_exist.jpg", 3) in missing
-    assert len(missing) == 1
+# --------------------------------------------------------------------
+# Tiny image exclusion
+# --------------------------------------------------------------------
+
+def test_filter_tiny_images_excludes_small(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    kept, dims = filter_tiny_images(index, min_size=64)
+    rel_paths = {e.rel_path for e in kept}
+    assert "car/car_tiny.jpg" not in rel_paths
+    # normal images survive
+    assert "car/car_0.jpg" in rel_paths
+    assert dims["car/car_0.jpg"] == (100, 100)
 
 
-def test_check_label_folder_consistency_flags_mismatch(mini_dataset):
-    entries = load_metadata(mini_dataset["train_meta_path"])
-    # Inject an entry where the label (9 = truck) doesn't match the folder (car)
-    entries.append(("car/car_0.jpg", 9))
-    mismatches = check_label_folder_consistency(entries, LABEL_TO_CLASS)
-    assert len(mismatches) == 1
-    assert mismatches[0][0] == "car/car_0.jpg"
-    assert mismatches[0][2] == "truck"  # expected class for label 9
-    assert mismatches[0][3] == "car"    # actual folder
+def test_filter_tiny_images_threshold_is_configurable(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    # with a very low threshold, even the tiny image survives
+    kept, _ = filter_tiny_images(index, min_size=16)
+    rel_paths = {e.rel_path for e in kept}
+    assert "car/car_tiny.jpg" in rel_paths
 
 
-def test_check_label_folder_consistency_no_false_positives(mini_dataset):
-    entries = load_metadata(mini_dataset["train_meta_path"])
-    mismatches = check_label_folder_consistency(entries, LABEL_TO_CLASS)
-    assert mismatches == []
+# --------------------------------------------------------------------
+# Split determinism & no-overlap
+# --------------------------------------------------------------------
+
+def test_split_determinism_same_seed_same_result(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    index = remove_exact_duplicates(index)
+    index, _ = filter_tiny_images(index, min_size=64)
+
+    split_a = build_split_assignments(index, test_fraction=0.25, seed=42)
+    split_b = build_split_assignments(index, test_fraction=0.25, seed=42)
+
+    paths_a = {name: sorted(e.rel_path for e in entries) for name, entries in split_a.items()}
+    paths_b = {name: sorted(e.rel_path for e in entries) for name, entries in split_b.items()}
+    assert paths_a == paths_b
 
 
-def test_check_train_valid_overlap_detects_leakage(mini_dataset):
-    train_entries = load_metadata(mini_dataset["train_meta_path"])
-    valid_entries = load_metadata(mini_dataset["valid_meta_path"])
-    # No overlap expected in the clean fixture
-    overlap = check_train_valid_overlap(train_entries, valid_entries)
-    assert overlap == set()
+def test_split_different_seed_can_differ(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    index = remove_exact_duplicates(index)
+    index, _ = filter_tiny_images(index, min_size=64)
 
-    # Now inject a leaked path into validation
-    valid_entries.append(("car/car_0.jpg", 3))
-    overlap = check_train_valid_overlap(train_entries, valid_entries)
-    assert "car/car_0.jpg" in overlap
+    split_a = build_split_assignments(index, test_fraction=0.25, seed=1)
+    split_b = build_split_assignments(index, test_fraction=0.25, seed=2)
+
+    test_a = sorted(e.rel_path for e in split_a["test"])
+    test_b = sorted(e.rel_path for e in split_b["test"])
+    assert test_a != test_b
 
 
-def test_class_distribution_counts_by_class_name(mini_dataset):
-    entries = load_metadata(mini_dataset["train_meta_path"])
-    dist = class_distribution(entries, LABEL_TO_CLASS)
-    assert dist["car"] == 2
-    assert dist["truck"] == 2
+def test_official_validation_split_untouched(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    index = remove_exact_duplicates(index)
+    index, _ = filter_tiny_images(index, min_size=64)
+
+    by_split = index_by_split(index)
+    official_valid_paths = sorted(e.rel_path for e in by_split["valid"])
+
+    splits = build_split_assignments(index, test_fraction=0.25, seed=42)
+    new_valid_paths = sorted(e.rel_path for e in splits["validation"])
+
+    assert official_valid_paths == new_valid_paths
+
+
+def test_test_set_only_carved_from_official_train(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    index = remove_exact_duplicates(index)
+    index, _ = filter_tiny_images(index, min_size=64)
+
+    by_split = index_by_split(index)
+    official_train_paths = {e.rel_path for e in by_split["train"]}
+
+    splits = build_split_assignments(index, test_fraction=0.25, seed=42)
+    test_paths = {e.rel_path for e in splits["test"]}
+
+    assert test_paths.issubset(official_train_paths)
+
+
+def test_no_overlap_across_splits(synthetic_dataset):
+    index = build_dataset_index(synthetic_dataset["root"])
+    index = remove_exact_duplicates(index)
+    index, _ = filter_tiny_images(index, min_size=64)
+
+    splits = build_split_assignments(index, test_fraction=0.25, seed=42)
+    train_paths = {e.rel_path for e in splits["train"]}
+    valid_paths = {e.rel_path for e in splits["validation"]}
+    test_paths = {e.rel_path for e in splits["test"]}
+
+    assert train_paths.isdisjoint(valid_paths)
+    assert train_paths.isdisjoint(test_paths)
+    assert valid_paths.isdisjoint(test_paths)
+
+
+def test_carve_test_split_is_stratified_per_class():
+    from src.data.loader import DatasetEntry
+
+    entries = [
+        DatasetEntry(f"/x/car_{i}.jpg", f"car/car_{i}.jpg", "car", "train")
+        for i in range(8)
+    ] + [
+        DatasetEntry(f"/x/truck_{i}.jpg", f"truck/truck_{i}.jpg", "truck", "train")
+        for i in range(4)
+    ]
+    train, test = carve_test_split(entries, test_fraction=0.25, seed=7)
+
+    test_car_count = sum(1 for e in test if e.class_name == "car")
+    test_truck_count = sum(1 for e in test if e.class_name == "truck")
+    assert test_car_count == 2  # 25% of 8
+    assert test_truck_count == 1  # 25% of 4 (rounded)
+
+
+# --------------------------------------------------------------------
+# Full pipeline + manifest correctness
+# --------------------------------------------------------------------
+
+def test_run_preprocessing_end_to_end_and_manifest(synthetic_dataset, base_config):
+    manifest_path = run_preprocessing(base_config, dataset_root=synthetic_dataset["root"])
+
+    assert manifest_path.exists()
+
+    with open(manifest_path, newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    assert len(rows) > 0
+
+    # manifest schema
+    expected_fields = {
+        "rel_output_path", "class_name", "split",
+        "original_width", "original_height",
+        "processed_width", "processed_height", "source_rel_path",
+    }
+    assert expected_fields.issubset(set(rows[0].keys()))
+
+    # tiny image must not appear anywhere in the manifest
+    assert not any(r["source_rel_path"] == "car/car_tiny.jpg" for r in rows)
+
+    # duplicate: only one of truck_0.jpg / truck_0_dup.jpg present
+    dup_sources = {r["source_rel_path"] for r in rows} & {
+        "truck/truck_0.jpg", "truck/truck_0_dup.jpg"
+    }
+    assert len(dup_sources) == 1
+
+    # processed images actually exist on disk at the recorded path, at
+    # the configured output size
+    processed_root = manifest_path.parent
+    for row in rows:
+        out_file = processed_root / row["rel_output_path"]
+        assert out_file.exists()
+        with Image.open(out_file) as img:
+            assert img.mode == "RGB"
+            assert img.size == (32, 32)  # configured image_size
+
+    # splits present are exactly train/validation/test
+    assert set(r["split"] for r in rows).issubset({"train", "validation", "test"})
+
+
+def test_run_preprocessing_is_deterministic(synthetic_dataset, base_config, tmp_path):
+    manifest_path_1 = run_preprocessing(base_config, dataset_root=synthetic_dataset["root"])
+    with open(manifest_path_1, newline="") as f:
+        rows_1 = sorted(
+            (r["source_rel_path"], r["split"]) for r in csv.DictReader(f)
+        )
+
+    # run again into a fresh processed_root with the same seed
+    base_config["dataset"]["processed_root"] = str(tmp_path / "processed_2")
+    manifest_path_2 = run_preprocessing(base_config, dataset_root=synthetic_dataset["root"])
+    with open(manifest_path_2, newline="") as f:
+        rows_2 = sorted(
+            (r["source_rel_path"], r["split"]) for r in csv.DictReader(f)
+        )
+
+    assert rows_1 == rows_2
+
+
+def test_raw_dataset_untouched_by_preprocessing(synthetic_dataset, base_config):
+    before = sorted(os.listdir(os.path.join(synthetic_dataset["root"], "car")))
+    run_preprocessing(base_config, dataset_root=synthetic_dataset["root"])
+    after = sorted(os.listdir(os.path.join(synthetic_dataset["root"], "car")))
+    assert before == after
