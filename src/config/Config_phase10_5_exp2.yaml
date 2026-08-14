@@ -1,0 +1,108 @@
+# =========================================================
+# Vehicle-10 Classification — Phase 10.5 Experiment 2
+# =========================================================
+# Single experimental change vs. the baseline (src/config/config.yaml):
+#
+#     model.dense_units: 128 -> 256
+#
+# Everything else (dataset, preprocessing, augmentation, seed,
+# optimizer, learning rate, batch size, epochs, callbacks) is
+# byte-for-byte identical to the baseline config. Only output
+# paths are changed, and only so this run can never overwrite
+# baseline artifacts:
+#
+#     training.checkpoint.path      -> models/best_model_exp2.keras
+#     training.results.metrics_dir  -> results/metrics_exp2
+#     training.results.plots_dir    -> results/plots_exp2
+#     evaluation.output_dir         -> results/evaluation_exp2
+#
+# See src/models/cnn_model.py:dense_units_from_config() and
+# src/training/train.py for how model.dense_units is consumed.
+# If this key is absent (as in the baseline config), behavior
+# is unchanged (defaults to 128).
+
+dataset:
+  raw_root: "D:\\ml-datasets\\vehicle-10"
+  processed_root: "data/processed"
+
+  classes:
+    - bicycle
+    - boat
+    - bus
+    - car
+    - helicopter
+    - minibus
+    - motorcycle
+    - taxi
+    - train
+    - truck
+
+preprocessing:
+  image_size: [128, 128]
+  min_image_size: 64
+  test_split_fraction: 0.15
+  seed: 42
+  output_format: "jpg"
+  jpeg_quality: 95
+
+manifest:
+  filename: "manifest.csv"
+
+augmentation:
+  enabled: true
+
+  rotation:
+    enabled: true
+    range_degrees: 10.0
+
+  zoom:
+    enabled: true
+    range_fraction: 0.10
+
+  horizontal_flip:
+    enabled: true
+    probability: 0.5
+
+  vertical_flip:
+    enabled: false
+    probability: 0.5
+
+  brightness:
+    enabled: true
+    range_fraction: 0.20
+
+# =========================================================
+# Phase 10.5 Experiment 2 — model capacity override
+# =========================================================
+# ONLY new section relative to baseline config.yaml. Consumed by
+# src/models/cnn_model.py:dense_units_from_config(), wired in via
+# src/training/train.py. All other architecture parameters
+# (conv filters, conv_dropout_rate, dense_dropout_rate, number of
+# conv/pool blocks) are unchanged from cnn_model.py's defaults.
+model:
+  dense_units: 256
+
+training:
+  epochs: 30
+  batch_size: 32
+  learning_rate: 0.001
+
+  early_stopping:
+    enabled: true
+    patience: 5
+
+  reduce_lr:
+    enabled: true
+    patience: 2
+    factor: 0.5
+
+  checkpoint:
+    enabled: true
+    path: "models/best_model_exp2.keras"
+
+  results:
+    metrics_dir: "results/metrics_exp2"
+    plots_dir: "results/plots_exp2"
+
+evaluation:
+  output_dir: "results/evaluation_exp2"

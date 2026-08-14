@@ -1,0 +1,86 @@
+{
+  "test_loss": 0.7841616272926331,
+  "test_accuracy": 0.7263803482055664,
+  "num_test_images": 4075,
+  "num_classes": 10,
+  "class_names": [
+    "bicycle",
+    "boat",
+    "bus",
+    "car",
+    "helicopter",
+    "minibus",
+    "motorcycle",
+    "taxi",
+    "train",
+    "truck"
+  ],
+  "per_class_metrics": {
+    "bicycle": {
+      "precision": 0.5817490494296578,
+      "recall": 0.8315217391304348,
+      "f1_score": 0.6845637583892618,
+      "support": 184.0
+    },
+    "boat": {
+      "precision": 0.7976570820021299,
+      "recall": 0.8132464712269273,
+      "f1_score": 0.8053763440860215,
+      "support": 921.0
+    },
+    "bus": {
+      "precision": 0.8428571428571429,
+      "recall": 0.8515463917525773,
+      "f1_score": 0.8471794871794872,
+      "support": 485.0
+    },
+    "car": {
+      "precision": 0.7909215955983494,
+      "recall": 0.6014644351464435,
+      "f1_score": 0.6833036244800951,
+      "support": 956.0
+    },
+    "helicopter": {
+      "precision": 0.6804123711340206,
+      "recall": 0.868421052631579,
+      "f1_score": 0.7630057803468208,
+      "support": 76.0
+    },
+    "minibus": {
+      "precision": 0.5267857142857143,
+      "recall": 0.6704545454545454,
+      "f1_score": 0.59,
+      "support": 176.0
+    },
+    "motorcycle": {
+      "precision": 0.8633405639913232,
+      "recall": 0.7509433962264151,
+      "f1_score": 0.8032290615539859,
+      "support": 530.0
+    },
+    "taxi": {
+      "precision": 0.45294117647058824,
+      "recall": 0.7549019607843137,
+      "f1_score": 0.5661764705882353,
+      "support": 102.0
+    },
+    "train": {
+      "precision": 0.5636363636363636,
+      "recall": 0.7673267326732673,
+      "f1_score": 0.649895178197065,
+      "support": 202.0
+    },
+    "truck": {
+      "precision": 0.5967365967365967,
+      "recall": 0.5778781038374717,
+      "f1_score": 0.5871559633027523,
+      "support": 443.0
+    }
+  },
+  "macro_precision": 0.6697037656141887,
+  "macro_recall": 0.7487704828863976,
+  "macro_f1": 0.6979885668123724,
+  "weighted_precision": 0.7442934331144749,
+  "weighted_recall": 0.7263803680981595,
+  "weighted_f1": 0.7284688148222747
+}
