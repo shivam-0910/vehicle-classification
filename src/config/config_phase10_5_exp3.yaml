@@ -1,0 +1,109 @@
+# =========================================================
+# Vehicle-10 Classification — Phase 10.5 Experiment 3
+# =========================================================
+# Starting point: src/config/config_phase10_5_exp2.yaml (the
+# successful capacity experiment: dense_units 128 -> 256).
+#
+# Single experimental change vs. Experiment 2:
+#
+#     training.epochs: 30 -> 50
+#
+# This tests whether the Experiment 2 architecture benefits from
+# a longer training budget. Early stopping (patience=5) and
+# ReduceLROnPlateau (patience=2, factor=0.5) remain enabled and
+# unchanged, so 50 is a ceiling, not a forced full-length run.
+#
+# Everything else (dataset, preprocessing, augmentation, seed,
+# optimizer, learning rate, batch size, class weighting, loss,
+# model.dense_units=256) is byte-for-byte identical to
+# Experiment 2. Only output paths are changed, so this run can
+# never overwrite Experiment 2 (or baseline) artifacts:
+#
+#     training.checkpoint.path      -> models/best_model_exp3.keras
+#     training.results.metrics_dir  -> results/metrics_exp3
+#     training.results.plots_dir    -> results/plots_exp3
+#     evaluation.output_dir         -> results/evaluation_exp3
+
+dataset:
+  raw_root: "D:\\ml-datasets\\vehicle-10"
+  processed_root: "data/processed"
+
+  classes:
+    - bicycle
+    - boat
+    - bus
+    - car
+    - helicopter
+    - minibus
+    - motorcycle
+    - taxi
+    - train
+    - truck
+
+preprocessing:
+  image_size: [128, 128]
+  min_image_size: 64
+  test_split_fraction: 0.15
+  seed: 42
+  output_format: "jpg"
+  jpeg_quality: 95
+
+manifest:
+  filename: "manifest.csv"
+
+augmentation:
+  enabled: true
+
+  rotation:
+    enabled: true
+    range_degrees: 10.0
+
+  zoom:
+    enabled: true
+    range_fraction: 0.10
+
+  horizontal_flip:
+    enabled: true
+    probability: 0.5
+
+  vertical_flip:
+    enabled: false
+    probability: 0.5
+
+  brightness:
+    enabled: true
+    range_fraction: 0.20
+
+# =========================================================
+# Model capacity — carried over unchanged from Experiment 2
+# =========================================================
+# Consumed by src/models/cnn_model.py:dense_units_from_config(),
+# wired in via src/training/train.py. Must stay 256 to keep the
+# architecture identical to Experiment 2.
+model:
+  dense_units: 256
+
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate: 0.001
+
+  early_stopping:
+    enabled: true
+    patience: 5
+
+  reduce_lr:
+    enabled: true
+    patience: 2
+    factor: 0.5
+
+  checkpoint:
+    enabled: true
+    path: "models/best_model_exp3.keras"
+
+  results:
+    metrics_dir: "results/metrics_exp3"
+    plots_dir: "results/plots_exp3"
+
+evaluation:
+  output_dir: "results/evaluation_exp3"

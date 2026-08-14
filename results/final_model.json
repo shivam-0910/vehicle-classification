@@ -1,0 +1,11 @@
+{
+  "experiment": "Experiment 3",
+  "model_path": "models/best_model_exp3.keras",
+  "config_path": "src/config/config_phase10_5_exp3.yaml",
+  "test_accuracy": 0.7266257405281067,
+  "test_loss": 0.7764738202095032,
+  "macro_f1": 0.7007549311952246,
+  "weighted_f1": 0.7301522616323575,
+  "best_validation_accuracy": 0.7293,
+  "status": "final"
+}

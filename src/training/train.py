@@ -63,6 +63,7 @@ from src.data.augmentation import (
 from src.data.loader import load_config
 from src.models.cnn_model import (
     build_and_compile_model,
+    dense_units_from_config,
     input_shape_from_config,
     num_classes_from_config,
 )
@@ -517,6 +518,7 @@ def train_model(
     model = build_and_compile_model(
         input_shape=input_shape,
         num_classes=len(class_names),
+        dense_units=dense_units_from_config(config),
         learning_rate=train_cfg.get("learning_rate"),
     )
     logger.info("Model parameters: %d", model.count_params())

@@ -89,6 +89,21 @@ def input_shape_from_config(config: dict) -> Tuple[int, int, int]:
     return (height, width, 3)
 
 
+def dense_units_from_config(config: dict) -> int:
+    """
+    Derive the dense hidden-layer width from a loaded config.yaml dict,
+    using an optional model.dense_units key. Falls back to
+    DEFAULT_DENSE_UNITS (128) if the key/section is absent, so any
+    config without a `model:` section -- including the current
+    baseline config.yaml -- behaves exactly as before this function
+    was added.
+    """
+    dense_units = (config or {}).get("model", {}).get("dense_units")
+    if not dense_units:
+        return DEFAULT_DENSE_UNITS
+    return int(dense_units)
+
+
 def build_model(
     input_shape: Tuple[int, int, int] = DEFAULT_INPUT_SHAPE,
     num_classes: int = DEFAULT_NUM_CLASSES,
