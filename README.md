@@ -504,10 +504,7 @@ For questions or issues:
 - Deploy to Streamlit Cloud or Docker
 - Integrate into larger system
 - Collect more data for minority classes
-- Experiment with transfer learning if accuracy requirements increase
-- [ ] Phase 8 — Deployment (Streamlit)
-- [ ] Phase 9 — Testing
-- [ ] Phase 10 — Documentation (report, PPT, demo video)
+
 
 ---
 
@@ -518,6 +515,3 @@ Pillow/OpenCV · Streamlit
 
 ---
 
-## License
-
-*(add license here, e.g., MIT)*
